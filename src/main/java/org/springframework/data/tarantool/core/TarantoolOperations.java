@@ -1,7 +1,7 @@
 package org.springframework.data.tarantool.core;
 
+import io.tarantool.driver.api.conditions.Conditions;
 import org.springframework.data.tarantool.core.convert.TarantoolConverter;
-import org.springframework.data.tarantool.core.query.support.Query;
 import org.springframework.lang.Nullable;
 
 import java.util.List;
@@ -19,12 +19,12 @@ public interface TarantoolOperations {
      * Default value mappers {@link } will be used unless a custom one is specified. -- TODO
      *
      * @param <T> target entity type
-     * @param query Query object that incapsulates the search criteria
+     * @param query Query object that encapsulates the search criteria
      * @param entityType Desired type of the result object
      * @return The converted object
      */
     @Nullable
-    <T> T findOne(Query query, Class<T> entityType);
+    <T> T findOne(Conditions query, Class<T> entityType);
 
     /**
      * Map the results of a query over a space for the entity class to a List of the specified type.
@@ -32,11 +32,11 @@ public interface TarantoolOperations {
      * Default value mappers {@link } will be used unless a custom one is specified. -- TODO
      *
      * @param <T> target entity type
-     * @param query Query object that incapsulates the search criteria
+     * @param query Query object that encapsulates the search criteria
      * @param entityType Desired type of the result object
      * @return The list of converted objects
      */
-    <T> List<T> find(Query query, Class<T> entityType);
+    <T> List<T> find(Conditions query, Class<T> entityType);
 
     /**
      * Get an entity by the given id and map it to an object of the given type.
@@ -49,6 +49,7 @@ public interface TarantoolOperations {
      * @param entityType Desired type of the result object
      * @return The converted object
      */
+    @Nullable
     <T, ID> T findById(ID id, Class<T> entityType);
 
     /**
@@ -68,23 +69,23 @@ public interface TarantoolOperations {
      * Default value mappers {@link } will be used unless a custom one is specified. -- TODO
      *
      * @param <T> target entity type
-     * @param query Query object that incapsulates the search criteria
+     * @param query Query object that encapsulates the search criteria
      * @param entityType Desired type of the result object
      * @return The list of converted objects
      */
     @Nullable
-    <T> List<T> findAndRemove(Query query, Class<T> entityType);
+    <T> List<T> findAndRemove(Conditions query, Class<T> entityType);
 
     /**
      * Count the number of records matching the specified query. The space is determined automatically
      * from the entity class.
      *
      * @param <T> target entity type
-     * @param query Query object that incapsulates the search criteria
+     * @param query Query object that encapsulates the search criteria
      * @param entityType Desired type of the result object
      * @return Number of records
      */
-    <T> Long count(Query query, Class<T> entityType);
+    <T> Long count(Conditions query, Class<T> entityType);
 
     /**
      * Insert a record into a space. The space is determined automatically by the entity class.
@@ -94,6 +95,7 @@ public interface TarantoolOperations {
      * @param entityType Desired type of the result object
      * @return The inserted object
      */
+    @Nullable
     <T> T insert(T entity, Class<T> entityType);
 
     /**
@@ -105,7 +107,21 @@ public interface TarantoolOperations {
      * @param entityType Desired type of the result object
      * @return The inserted object
      */
+    @Nullable
     <T> T save(T entity, Class<T> entityType);
+
+    /**
+     * Update all records selected by the specified conditions. The space is determined automatically by the
+     * entity class. Warning: executing this operation on a large data set may cause OutOfMemory error or take
+     * significant time to complete.
+     *
+     * @param query tuple selection conditions
+     * @param entity entity with new data for update
+     * @param entityClass target class of the result objects
+     * @param <T> target entity type
+     * @return list of updated objects
+     */
+    <T> List<T> update(Conditions query, T entity, Class<T> entityClass);
 
     /**
      * Remove a record from a space corresponding to the specified entity type.

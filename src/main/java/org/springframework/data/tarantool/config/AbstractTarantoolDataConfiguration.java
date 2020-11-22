@@ -9,17 +9,25 @@ import io.tarantool.driver.auth.TarantoolCredentials;
 import io.tarantool.driver.core.TarantoolConnectionSelectionStrategies.ParallelRoundRobinStrategyFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.convert.CustomConversions;
 import org.springframework.data.tarantool.core.DefaultTarantoolExceptionTranslator;
 import org.springframework.data.tarantool.core.TarantoolExceptionTranslator;
 import org.springframework.data.tarantool.core.TarantoolTemplate;
 import io.tarantool.driver.api.TarantoolClient;
 import org.springframework.data.tarantool.core.convert.MappingTarantoolConverter;
 import org.springframework.data.tarantool.core.convert.TarantoolCustomConversions;
+import org.springframework.data.tarantool.core.convert.TarantoolMapTypeAliasAccessor;
+import org.springframework.data.tarantool.core.convert.TarantoolTupleTypeMapper;
 import org.springframework.data.tarantool.core.mapping.TarantoolMappingContext;
+import org.springframework.data.tarantool.core.mapping.TarantoolSimpleTypes;
 import org.springframework.data.tarantool.repository.config.TarantoolRepositoryOperationsMapping;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory;
+import java.util.concurrent.ForkJoinWorkerThread;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Base class for configuring Spring Data using JavaConfig with {@link TarantoolClient}.
@@ -50,7 +58,7 @@ public abstract class AbstractTarantoolDataConfiguration extends TarantoolConfig
     }
 
     /**
-     * Creaate an intance of {@link TarantoolCredentials} for using in {@link TarantoolClientConfig}.
+     * Create an instance of {@link TarantoolCredentials} for using in {@link TarantoolClientConfig}.
      *
      * @return a credentials instance
      */
@@ -111,14 +119,16 @@ public abstract class AbstractTarantoolDataConfiguration extends TarantoolConfig
      * @param tarantoolClient a configured tarantool client instance
      * @param mappingContext mapping context, contains information about defined entities
      * @param converter type converter, converts data between entities and Tarantool tuples
+     * @param queryExecutorsFactory worker thread factory for query executor threads
      * @return a {@link TarantoolTemplate} instance.
      * @see #tarantoolClient(TarantoolClientConfig, TarantoolClusterAddressProvider)
      */
     @Bean("tarantoolTemplate")
     public TarantoolTemplate tarantoolTemplate(TarantoolClient tarantoolClient,
                                                TarantoolMappingContext mappingContext,
-                                               MappingTarantoolConverter converter) {
-        return new TarantoolTemplate(tarantoolClient, mappingContext, converter);
+                                               MappingTarantoolConverter converter,
+                                               ForkJoinWorkerThreadFactory queryExecutorsFactory) {
+        return new TarantoolTemplate(tarantoolClient, mappingContext, converter, queryExecutorsFactory);
     }
 
     /**
@@ -149,12 +159,27 @@ public abstract class AbstractTarantoolDataConfiguration extends TarantoolConfig
      * Creates a {@link MappingTarantoolConverter} instance for the specified type conversions
      *
      * @param tarantoolMappingContext a {@link TarantoolMappingContext} instance
+     * @param typeAliasAccessor a {@link TarantoolMapTypeAliasAccessor} instance
+     * @param customConversions a {@link CustomConversions} instance
      * @return an {@link MappingTarantoolConverter} instance
      * @see #customConversions()
      */
     @Bean("mappingTarantoolConverter")
-    public MappingTarantoolConverter mappingTarantoolConverter(TarantoolMappingContext tarantoolMappingContext) {
-        return new MappingTarantoolConverter(tarantoolMappingContext, customConversions());
+    public MappingTarantoolConverter mappingTarantoolConverter(TarantoolMappingContext tarantoolMappingContext,
+                                                               TarantoolMapTypeAliasAccessor typeAliasAccessor,
+                                                               CustomConversions customConversions) {
+        return new MappingTarantoolConverter(tarantoolMappingContext, typeAliasAccessor, customConversions);
+    }
+
+    /**
+     * Creates a {@link TarantoolMapTypeAliasAccessor} instance for retrieving the serialized object type from
+     * nested maps
+     *
+     * @return a {@link TarantoolMapTypeAliasAccessor} instance
+     */
+    @Bean("typeAliasAccessor")
+    public TarantoolMapTypeAliasAccessor typeAliasAccessor() {
+        return new TarantoolMapTypeAliasAccessor(TarantoolTupleTypeMapper.DEFAULT_TYPE_KEY);
     }
 
     /**
@@ -169,7 +194,7 @@ public abstract class AbstractTarantoolDataConfiguration extends TarantoolConfig
 
         TarantoolMappingContext mappingContext = new TarantoolMappingContext();
         mappingContext.setInitialEntitySet(getInitialEntitySet());
-        mappingContext.setSimpleTypeHolder(customConversions().getSimpleTypeHolder());
+        mappingContext.setSimpleTypeHolder(TarantoolSimpleTypes.HOLDER);
         mappingContext.setFieldNamingStrategy(fieldNamingStrategy());
 
         return mappingContext;
@@ -196,13 +221,33 @@ public abstract class AbstractTarantoolDataConfiguration extends TarantoolConfig
     }
 
     /**
-     * Returns the default driver-to-Spring exception translator
+     * Creates the default driver-to-Spring exception translator
      *
-     * @return exception translator
+     * @return new exception translator instance
      */
     @Bean
     public TarantoolExceptionTranslator tarantoolExceptionTranslator() {
         return new DefaultTarantoolExceptionTranslator();
     }
 
-}
+    /**
+     * Creates the default query executors worker thread factory
+     *
+     * @return new factory instance
+     */
+    @Bean
+    public ForkJoinWorkerThreadFactory queryExecutorsFactory() {
+        return new WorkerFactory();
+    }
+
+    private static final class WorkerFactory implements ForkJoinWorkerThreadFactory {
+
+        private final AtomicLong id = new AtomicLong();
+
+        @Override
+        public ForkJoinWorkerThread newThread(ForkJoinPool pool) {
+            ForkJoinWorkerThread worker = ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool);
+            worker.setName("TarantoolTemplateQueryExecutor-" + id);
+            return worker;
+        }
+    }}
